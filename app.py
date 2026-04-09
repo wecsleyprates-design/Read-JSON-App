@@ -124,6 +124,7 @@ def profile_data(flat_rows: list[dict]) -> dict:
             schema_lines.append(f'    {safe}: Optional[{col["pyType"]}] = Field(alias="{col["name"]}")')
         else:
             schema_lines.append(f'    {safe}: Optional[{col["pyType"]}]')
+    pydantic_schema = "\n".join(schema_lines)
 
     return {
         "totalRows": len(flat_rows),
@@ -131,10 +132,11 @@ def profile_data(flat_rows: list[dict]) -> dict:
         "qualityScore": round(quality_score, 2),
         "completeness": round(completeness, 2),
         "consistency": round(consistency, 2),
-        "pydanticSchema": "\n".join(schema_lines),
+        "pydanticSchema": pydantic_schema,
     }
 
 
+# ── Session state ──────────────────────────────────────────────────────────────
 if "flat_rows" not in st.session_state:
     st.session_state.flat_rows = []
 if "summary" not in st.session_state:
@@ -143,6 +145,7 @@ if "df" not in st.session_state:
     st.session_state.df = None
 
 
+# ── Header ─────────────────────────────────────────────────────────────────────
 col_logo, col_export = st.columns([8, 2])
 with col_logo:
     st.markdown("## 📊 Data Ingestion & Analysis")
@@ -159,6 +162,7 @@ with col_export:
 
 st.divider()
 
+# ── Upload Section ─────────────────────────────────────────────────────────────
 with st.container(border=True):
     st.markdown("**Upload Dataset**")
     uploaded_file = st.file_uploader("Choose a JSON file", type=["json"], label_visibility="collapsed")
@@ -177,6 +181,7 @@ with st.container(border=True):
         except Exception as e:
             st.error(f"Error processing file: {e}")
 
+# ── Main content (only shown after upload) ─────────────────────────────────────
 if st.session_state.summary:
     summary = st.session_state.summary
     flat_rows = st.session_state.flat_rows
@@ -184,15 +189,19 @@ if st.session_state.summary:
 
     st.markdown("---")
 
+    # ── Summary Metrics ────────────────────────────────────────────────────────
     m1, m2, m3 = st.columns(3)
+
     with m1:
         with st.container(border=True):
             st.markdown('<div class="metric-label">Total Rows</div>', unsafe_allow_html=True)
             st.markdown(f'<div class="metric-value">{summary["totalRows"]:,}</div>', unsafe_allow_html=True)
+
     with m2:
         with st.container(border=True):
             st.markdown('<div class="metric-label">Total Columns</div>', unsafe_allow_html=True)
             st.markdown(f'<div class="metric-value">{len(summary["columns"])}</div>', unsafe_allow_html=True)
+
     with m3:
         with st.container(border=True):
             score = summary["qualityScore"]
@@ -206,8 +215,10 @@ if st.session_state.summary:
 
     st.markdown("---")
 
+    # ── Tabs ───────────────────────────────────────────────────────────────────
     tab_data, tab_profile = st.tabs(["📋 Data Table", "🔬 Column Profile"])
 
+    # ── Tab: Data Table ────────────────────────────────────────────────────────
     with tab_data:
         c_search, c_toggle, c_group = st.columns([3, 2, 4])
 
@@ -215,6 +226,7 @@ if st.session_state.summary:
             search_term = st.text_input(
                 "search", placeholder="🔍 Search all columns…", label_visibility="collapsed"
             )
+
         with c_toggle:
             view_mode = st.radio(
                 "view", ["Horizontal", "Vertical"],
@@ -244,22 +256,34 @@ if st.session_state.summary:
 
         if view_mode == "Vertical":
             records = display_df.reset_index(drop=True)
-            type_map = {c["name"]: c["type"] for c in visible_col_profiles}
+            type_map     = {c["name"]: c["type"]          for c in visible_col_profiles}
+            py_type_map  = {c["name"]: c["pyType"]        for c in visible_col_profiles}
+            sg_map       = {c["name"]: c["semanticGroup"] for c in visible_col_profiles}
+
             vertical_rows = []
             for col_name in visible_col_names:
-                row = {"Field Name": col_name, "Type": type_map.get(col_name, "")}
+                row = {
+                    "Field Name":     col_name,
+                    "Type":           type_map.get(col_name, ""),
+                    "Python Type":    py_type_map.get(col_name, ""),
+                    "Semantic Group": sg_map.get(col_name, ""),
+                }
                 for i in range(len(records)):
                     val = records.iloc[i].get(col_name)
                     row[f"Record {i + 1}"] = (
                         "" if val is None or (isinstance(val, float) and str(val) == "nan") else val
                     )
                 vertical_rows.append(row)
+
             st.dataframe(pd.DataFrame(vertical_rows), use_container_width=True, height=500)
         else:
             st.dataframe(display_df, use_container_width=True, height=500)
 
-        st.caption(f"Showing {len(display_df):,} of {len(df):,} rows | {len(visible_col_names)} columns")
+        st.caption(
+            f"Showing {len(display_df):,} of {len(df):,} rows | {len(visible_col_names)} columns"
+        )
 
+    # ── Tab: Column Profile ────────────────────────────────────────────────────
     with tab_profile:
         profile_df = pd.DataFrame(summary["columns"]).rename(columns={
             "name": "Column", "type": "Type", "pyType": "Python Type",
