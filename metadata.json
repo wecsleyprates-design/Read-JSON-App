@@ -1,0 +1,5 @@
+{
+  "name": "JSON Data Analyzer",
+  "description": "A full-stack application to ingest, validate, analyze, and present data from JSON files.",
+  "requestFramePermissions": []
+}

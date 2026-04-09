@@ -1,0 +1,62 @@
+[
+  {
+    "id": 1,
+    "name": "John Doe",
+    "email": "john@example.com",
+    "age": 28,
+    "isActive": true,
+    "address": {
+      "city": "New York",
+      "country": "USA"
+    },
+    "tags": ["developer", "react"]
+  },
+  {
+    "id": 2,
+    "name": "Jane Smith",
+    "email": "jane@example.com",
+    "age": 34,
+    "isActive": false,
+    "address": {
+      "city": "London",
+      "country": "UK"
+    },
+    "tags": ["designer", "ui"]
+  },
+  {
+    "id": 3,
+    "name": "Bob Johnson",
+    "email": "bob@example.com",
+    "age": 45,
+    "isActive": true,
+    "address": {
+      "city": "San Francisco",
+      "country": "USA"
+    },
+    "tags": ["manager", "agile"]
+  },
+  {
+    "id": 4,
+    "name": "Alice Brown",
+    "email": "alice@example.com",
+    "age": 23,
+    "isActive": true,
+    "address": {
+      "city": "Berlin",
+      "country": "Germany"
+    },
+    "tags": ["developer", "python"]
+  },
+  {
+    "id": 5,
+    "name": "Charlie Davis",
+    "email": "charlie@example.com",
+    "age": 31,
+    "isActive": false,
+    "address": {
+      "city": "Paris",
+      "country": "France"
+    },
+    "tags": ["marketing", "seo"]
+  }
+]
