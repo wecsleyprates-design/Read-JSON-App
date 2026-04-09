@@ -37,7 +37,6 @@ st.markdown(
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def flatten_object(obj: dict, prefix: str = "") -> dict:
-    """Recursively flatten a nested dict, mirroring the JS implementation."""
     result = {}
     for k, v in obj.items():
         key = f"{prefix}_{k}" if prefix else k
@@ -49,20 +48,20 @@ def flatten_object(obj: dict, prefix: str = "") -> dict:
 
 
 def detect_type(values: list) -> tuple[str, str]:
-    """Return (js_type, py_type) for a list of non-null values."""
     if not values:
         return "string", "str"
+    # Check booleans first — Python bool is a subclass of int, so must precede number check
+    all_booleans = all(isinstance(v, bool) or v in ("true", "false") for v in values)
+    if all_booleans:
+        return "boolean", "bool"
     all_numbers = all(
-        isinstance(v, (int, float)) or (
+        (isinstance(v, (int, float)) and not isinstance(v, bool)) or (
             not isinstance(v, bool) and str(v).replace(".", "", 1).lstrip("-").isdigit()
         )
         for v in values
     )
     if all_numbers:
         return "number", "float"
-    all_booleans = all(isinstance(v, bool) or v in ("true", "false") for v in values)
-    if all_booleans:
-        return "boolean", "bool"
     return "string", "str"
 
 
@@ -89,7 +88,6 @@ def sanitize_python_name(name: str) -> str:
 
 
 def profile_data(flat_rows: list[dict]) -> dict:
-    """Build the summary object mirroring the Express /api/upload logic."""
     if not flat_rows:
         return {"totalRows": 0, "columns": [], "qualityScore": 0, "completeness": 0, "consistency": 0, "pydanticSchema": ""}
 
@@ -109,11 +107,13 @@ def profile_data(flat_rows: list[dict]) -> dict:
         col_type, py_type = detect_type(non_null)
         sg = semantic_group(col, col_type)
 
-        # Consistency per column
         for v in non_null:
-            if col_type == "number" and (isinstance(v, (int, float)) or (not isinstance(v, bool) and str(v).replace(".", "", 1).lstrip("-").isdigit())):
+            if col_type == "boolean" and (isinstance(v, bool) or v in ("true", "false")):
                 consistent_cells += 1
-            elif col_type == "boolean" and (isinstance(v, bool) or v in ("true", "false")):
+            elif col_type == "number" and (
+                (isinstance(v, (int, float)) and not isinstance(v, bool)) or
+                (not isinstance(v, bool) and str(v).replace(".", "", 1).lstrip("-").isdigit())
+            ):
                 consistent_cells += 1
             elif col_type == "string":
                 consistent_cells += 1
@@ -128,7 +128,6 @@ def profile_data(flat_rows: list[dict]) -> dict:
     consistency = (consistent_cells / non_missing * 100) if non_missing else 0
     quality_score = (completeness + consistency) / 2
 
-    # Generate Pydantic schema
     schema_lines = ["from pydantic import BaseModel, Field", "from typing import Optional, Any", "", "class InferredSchema(BaseModel):"]
     for col in column_profiles:
         safe = sanitize_python_name(col["name"])
@@ -290,7 +289,6 @@ if st.session_state.summary:
         with col_group:
             selected_group = st.selectbox("Filter by semantic group", all_groups, label_visibility="collapsed")
 
-        # Filter columns by semantic group
         if selected_group == "All":
             visible_cols = [c["name"] for c in summary["columns"] if c["name"] in df.columns]
         else:
@@ -298,7 +296,6 @@ if st.session_state.summary:
 
         display_df = df[visible_cols] if visible_cols else df
 
-        # Filter rows by search term
         if search_term:
             mask = display_df.apply(
                 lambda row: row.astype(str).str.contains(search_term, case=False, na=False).any(), axis=1
