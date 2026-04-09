@@ -27,9 +27,15 @@ st.markdown(
 
 
 def flatten_object(obj: dict, prefix: str = "") -> dict:
+    """Flatten nested dicts using '.' as separator.
+
+    Using '.' instead of '_' means pre-existing dot-notation keys in the JSON
+    (e.g. "source.confidence") resolve to the same path as nested-object
+    equivalents, automatically deduplicating them.
+    """
     result = {}
     for k, v in obj.items():
-        key = f"{prefix}_{k}" if prefix else k
+        key = f"{prefix}.{k}" if prefix else k
         if isinstance(v, dict):
             result.update(flatten_object(v, key))
         else:
@@ -134,6 +140,16 @@ def profile_data(flat_rows: list[dict]) -> dict:
         "consistency": round(consistency, 2),
         "pydanticSchema": pydantic_schema,
     }
+
+
+def safe_val(val):
+    if val is None:
+        return ""
+    if isinstance(val, float) and str(val) == "nan":
+        return ""
+    if isinstance(val, (list, dict)):
+        return str(val)
+    return val
 
 
 if "flat_rows" not in st.session_state:
@@ -249,10 +265,7 @@ if st.session_state.summary:
                 "Semantic Group": sg_map.get(col_name, ""),
             }
             for i in range(len(records)):
-                val = records.iloc[i].get(col_name)
-                row[f"Record {i + 1}"] = (
-                    "" if val is None or (isinstance(val, float) and str(val) == "nan") else val
-                )
+                row[f"Record {i + 1}"] = safe_val(records.iloc[i].get(col_name))
             vertical_rows.append(row)
 
         vertical_df = pd.DataFrame(vertical_rows)
