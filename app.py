@@ -1,27 +1,19 @@
 import json
-import math
 import re
-from collections import Counter
-from io import StringIO
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
-# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Data Ingestion & Analysis",
     page_icon="📊",
     layout="wide",
 )
 
-# ── Custom CSS ─────────────────────────────────────────────────────────────────
 st.markdown(
     """
     <style>
-        /* Hide Streamlit's default top padding */
         .block-container { padding-top: 1.5rem; }
-        /* Score colors */
         .score-green  { color: #16a34a; font-size: 2rem; font-weight: 700; }
         .score-yellow { color: #ca8a04; font-size: 2rem; font-weight: 700; }
         .score-red    { color: #dc2626; font-size: 2rem; font-weight: 700; }
@@ -33,8 +25,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
-# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def flatten_object(obj: dict, prefix: str = "") -> dict:
     result = {}
@@ -50,7 +40,6 @@ def flatten_object(obj: dict, prefix: str = "") -> dict:
 def detect_type(values: list) -> tuple[str, str]:
     if not values:
         return "string", "str"
-    # Check booleans first — Python bool is a subclass of int, so must precede number check
     all_booleans = all(isinstance(v, bool) or v in ("true", "false") for v in values)
     if all_booleans:
         return "boolean", "bool"
@@ -135,7 +124,6 @@ def profile_data(flat_rows: list[dict]) -> dict:
             schema_lines.append(f'    {safe}: Optional[{col["pyType"]}] = Field(alias="{col["name"]}")')
         else:
             schema_lines.append(f'    {safe}: Optional[{col["pyType"]}]')
-    pydantic_schema = "\n".join(schema_lines)
 
     return {
         "totalRows": len(flat_rows),
@@ -143,60 +131,10 @@ def profile_data(flat_rows: list[dict]) -> dict:
         "qualityScore": round(quality_score, 2),
         "completeness": round(completeness, 2),
         "consistency": round(consistency, 2),
-        "pydanticSchema": pydantic_schema,
+        "pydanticSchema": "\n".join(schema_lines),
     }
 
 
-def build_chart(flat_rows: list[dict], col_profile: dict) -> go.Figure | None:
-    col = col_profile["name"]
-    col_type = col_profile["type"]
-    sg = col_profile["semanticGroup"]
-
-    values = [row.get(col) for row in flat_rows if row.get(col) is not None and row.get(col) != ""]
-    if not values:
-        return None
-
-    fig = go.Figure()
-
-    if sg == "Date & Time":
-        date_counts: dict[str, int] = {}
-        for v in values:
-            try:
-                date_str = pd.to_datetime(str(v)).strftime("%Y-%m-%d")
-            except Exception:
-                date_str = str(v)[:10]
-            date_counts[date_str] = date_counts.get(date_str, 0) + 1
-        sorted_dates = sorted(date_counts.items())
-        fig.add_trace(go.Scatter(x=[d[0] for d in sorted_dates], y=[d[1] for d in sorted_dates], mode="lines+markers"))
-        fig.update_layout(title=f"'{col}' over time", xaxis_title="Date", yaxis_title="Count")
-
-    elif col_type == "number" and len(set(values)) > 10:
-        num_values = [float(v) for v in values if str(v).replace(".", "", 1).lstrip("-").isdigit() or isinstance(v, (int, float))]
-        if num_values:
-            fig.add_trace(go.Histogram(x=num_values, nbinsx=10, marker_color="#3b82f6"))
-            fig.update_layout(title=f"Distribution of '{col}'", xaxis_title=col, yaxis_title="Count")
-        else:
-            return None
-
-    else:
-        counts = Counter(str(v) for v in values)
-        top = counts.most_common(20)
-        fig.add_trace(go.Bar(x=[t[0] for t in top], y=[t[1] for t in top], marker_color="#3b82f6"))
-        fig.update_layout(title=f"Top values for '{col}'", xaxis_title=col, yaxis_title="Count")
-
-    fig.update_layout(
-        height=350,
-        margin=dict(t=50, b=40, l=40, r=20),
-        plot_bgcolor="white",
-        paper_bgcolor="white",
-        font=dict(family="sans-serif", size=12),
-        xaxis=dict(showgrid=True, gridcolor="#f3f4f6"),
-        yaxis=dict(showgrid=True, gridcolor="#f3f4f6"),
-    )
-    return fig
-
-
-# ── Session state ──────────────────────────────────────────────────────────────
 if "flat_rows" not in st.session_state:
     st.session_state.flat_rows = []
 if "summary" not in st.session_state:
@@ -205,7 +143,6 @@ if "df" not in st.session_state:
     st.session_state.df = None
 
 
-# ── Header ─────────────────────────────────────────────────────────────────────
 col_logo, col_export = st.columns([8, 2])
 with col_logo:
     st.markdown("## 📊 Data Ingestion & Analysis")
@@ -222,7 +159,6 @@ with col_export:
 
 st.divider()
 
-# ── Upload Section ─────────────────────────────────────────────────────────────
 with st.container(border=True):
     st.markdown("**Upload Dataset**")
     uploaded_file = st.file_uploader("Choose a JSON file", type=["json"], label_visibility="collapsed")
@@ -241,7 +177,6 @@ with st.container(border=True):
         except Exception as e:
             st.error(f"Error processing file: {e}")
 
-# ── Main content (only shown after upload) ─────────────────────────────────────
 if st.session_state.summary:
     summary = st.session_state.summary
     flat_rows = st.session_state.flat_rows
@@ -249,19 +184,15 @@ if st.session_state.summary:
 
     st.markdown("---")
 
-    # ── Summary Metrics ────────────────────────────────────────────────────────
     m1, m2, m3 = st.columns(3)
-
     with m1:
         with st.container(border=True):
             st.markdown('<div class="metric-label">Total Rows</div>', unsafe_allow_html=True)
             st.markdown(f'<div class="metric-value">{summary["totalRows"]:,}</div>', unsafe_allow_html=True)
-
     with m2:
         with st.container(border=True):
             st.markdown('<div class="metric-label">Total Columns</div>', unsafe_allow_html=True)
             st.markdown(f'<div class="metric-value">{len(summary["columns"])}</div>', unsafe_allow_html=True)
-
     with m3:
         with st.container(border=True):
             score = summary["qualityScore"]
@@ -275,26 +206,35 @@ if st.session_state.summary:
 
     st.markdown("---")
 
-    # ── Tabs ───────────────────────────────────────────────────────────────────
-    tab_data, tab_profile, tab_charts, tab_schema = st.tabs(["📋 Data Table", "🔬 Column Profile", "📈 Charts", "🐍 Pydantic Schema"])
+    tab_data, tab_profile = st.tabs(["📋 Data Table", "🔬 Column Profile"])
 
-    # ── Tab: Data Table ────────────────────────────────────────────────────────
     with tab_data:
-        col_search, col_group = st.columns([3, 4])
+        c_search, c_toggle, c_group = st.columns([3, 2, 4])
 
-        with col_search:
-            search_term = st.text_input("🔍 Search all columns", placeholder="Type to filter rows…", label_visibility="collapsed")
+        with c_search:
+            search_term = st.text_input(
+                "search", placeholder="🔍 Search all columns…", label_visibility="collapsed"
+            )
+        with c_toggle:
+            view_mode = st.radio(
+                "view", ["Horizontal", "Vertical"],
+                index=1, horizontal=True, label_visibility="collapsed"
+            )
 
         all_groups = ["All"] + sorted(set(c["semanticGroup"] for c in summary["columns"]))
-        with col_group:
-            selected_group = st.selectbox("Filter by semantic group", all_groups, label_visibility="collapsed")
+        with c_group:
+            selected_group = st.selectbox("group", all_groups, label_visibility="collapsed")
 
         if selected_group == "All":
-            visible_cols = [c["name"] for c in summary["columns"] if c["name"] in df.columns]
+            visible_col_profiles = [c for c in summary["columns"] if c["name"] in df.columns]
         else:
-            visible_cols = [c["name"] for c in summary["columns"] if c["semanticGroup"] == selected_group and c["name"] in df.columns]
+            visible_col_profiles = [
+                c for c in summary["columns"]
+                if c["semanticGroup"] == selected_group and c["name"] in df.columns
+            ]
+        visible_col_names = [c["name"] for c in visible_col_profiles]
 
-        display_df = df[visible_cols] if visible_cols else df
+        display_df = df[visible_col_names] if visible_col_names else df
 
         if search_term:
             mask = display_df.apply(
@@ -302,33 +242,30 @@ if st.session_state.summary:
             )
             display_df = display_df[mask]
 
-        st.dataframe(display_df, use_container_width=True, height=420)
-        st.caption(f"Showing {len(display_df):,} of {len(df):,} rows | {len(visible_cols)} columns")
+        if view_mode == "Vertical":
+            records = display_df.reset_index(drop=True)
+            type_map = {c["name"]: c["type"] for c in visible_col_profiles}
+            vertical_rows = []
+            for col_name in visible_col_names:
+                row = {"Field Name": col_name, "Type": type_map.get(col_name, "")}
+                for i in range(len(records)):
+                    val = records.iloc[i].get(col_name)
+                    row[f"Record {i + 1}"] = (
+                        "" if val is None or (isinstance(val, float) and str(val) == "nan") else val
+                    )
+                vertical_rows.append(row)
+            st.dataframe(pd.DataFrame(vertical_rows), use_container_width=True, height=500)
+        else:
+            st.dataframe(display_df, use_container_width=True, height=500)
 
-    # ── Tab: Column Profile ────────────────────────────────────────────────────
+        st.caption(f"Showing {len(display_df):,} of {len(df):,} rows | {len(visible_col_names)} columns")
+
     with tab_profile:
         profile_df = pd.DataFrame(summary["columns"]).rename(columns={
             "name": "Column", "type": "Type", "pyType": "Python Type",
             "semanticGroup": "Semantic Group", "nullCount": "Null Count", "uniqueCount": "Unique Count",
-        })
+        })[["Column", "Type", "Python Type", "Semantic Group", "Null Count", "Unique Count"]]
         st.dataframe(profile_df, use_container_width=True, height=500)
-
-    # ── Tab: Charts ────────────────────────────────────────────────────────────
-    with tab_charts:
-        col_names = [c["name"] for c in summary["columns"]]
-        selected_col_name = st.selectbox("Select column to visualize", col_names)
-        selected_col_profile = next(c for c in summary["columns"] if c["name"] == selected_col_name)
-
-        fig = build_chart(flat_rows, selected_col_profile)
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No chart data available for this column (all values are null/empty).")
-
-    # ── Tab: Pydantic Schema ───────────────────────────────────────────────────
-    with tab_schema:
-        st.markdown("Auto-generated Pydantic v2 schema inferred from the uploaded data:")
-        st.code(summary["pydanticSchema"], language="python")
 
 else:
     st.info("Upload a JSON file above to get started.")
