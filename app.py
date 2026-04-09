@@ -43,6 +43,23 @@ def flatten_object(obj: dict, prefix: str = "") -> dict:
     return result
 
 
+def strip_envelope(flat: dict) -> dict:
+    """If every key that isn't a scalar sits under a single 'data.' prefix,
+    strip that prefix so field names are shorter and easier to read.
+    Scalar root keys (created_at, expires_at, key, etc.) are kept as-is.
+    """
+    data_keys  = [k for k in flat if k.startswith("data.")]
+    other_keys = [k for k in flat if not k.startswith("data.")]
+
+    if not data_keys:
+        return flat
+
+    result = {k: flat[k] for k in other_keys}
+    for k in data_keys:
+        result[k[len("data."):]] = flat[k]
+    return result
+
+
 def detect_type(values: list) -> tuple[str, str]:
     if not values:
         return "string", "str"
@@ -184,7 +201,7 @@ with st.container(border=True):
             raw = json.loads(uploaded_file.read().decode("utf-8"))
             if not isinstance(raw, list):
                 raw = [raw]
-            flat_rows = [flatten_object(item) if isinstance(item, dict) else {"value": item} for item in raw]
+            flat_rows = [strip_envelope(flatten_object(item)) if isinstance(item, dict) else {"value": item} for item in raw]
             st.session_state.flat_rows = flat_rows
             st.session_state.summary = profile_data(flat_rows)
             st.session_state.df = pd.DataFrame(flat_rows)
