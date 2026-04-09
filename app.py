@@ -136,7 +136,6 @@ def profile_data(flat_rows: list[dict]) -> dict:
     }
 
 
-# ── Session state ──────────────────────────────────────────────────────────────
 if "flat_rows" not in st.session_state:
     st.session_state.flat_rows = []
 if "summary" not in st.session_state:
@@ -145,7 +144,6 @@ if "df" not in st.session_state:
     st.session_state.df = None
 
 
-# ── Header ─────────────────────────────────────────────────────────────────────
 col_logo, col_export = st.columns([8, 2])
 with col_logo:
     st.markdown("## 📊 Data Ingestion & Analysis")
@@ -162,7 +160,6 @@ with col_export:
 
 st.divider()
 
-# ── Upload Section ─────────────────────────────────────────────────────────────
 with st.container(border=True):
     st.markdown("**Upload Dataset**")
     uploaded_file = st.file_uploader("Choose a JSON file", type=["json"], label_visibility="collapsed")
@@ -181,7 +178,6 @@ with st.container(border=True):
         except Exception as e:
             st.error(f"Error processing file: {e}")
 
-# ── Main content (only shown after upload) ─────────────────────────────────────
 if st.session_state.summary:
     summary = st.session_state.summary
     flat_rows = st.session_state.flat_rows
@@ -189,7 +185,6 @@ if st.session_state.summary:
 
     st.markdown("---")
 
-    # ── Summary Metrics ────────────────────────────────────────────────────────
     m1, m2, m3 = st.columns(3)
 
     with m1:
@@ -215,22 +210,14 @@ if st.session_state.summary:
 
     st.markdown("---")
 
-    # ── Tabs ───────────────────────────────────────────────────────────────────
     tab_data, tab_profile = st.tabs(["📋 Data Table", "🔬 Column Profile"])
 
-    # ── Tab: Data Table ────────────────────────────────────────────────────────
     with tab_data:
-        c_search, c_toggle, c_group = st.columns([3, 2, 4])
+        c_search, c_group = st.columns([3, 6])
 
         with c_search:
             search_term = st.text_input(
                 "search", placeholder="🔍 Search all columns…", label_visibility="collapsed"
-            )
-
-        with c_toggle:
-            view_mode = st.radio(
-                "view", ["Horizontal", "Vertical"],
-                index=1, horizontal=True, label_visibility="collapsed"
             )
 
         all_groups = ["All"] + sorted(set(c["semanticGroup"] for c in summary["columns"]))
@@ -248,42 +235,38 @@ if st.session_state.summary:
 
         display_df = df[visible_col_names] if visible_col_names else df
 
+        records = display_df.reset_index(drop=True)
+        type_map    = {c["name"]: c["type"]          for c in visible_col_profiles}
+        py_type_map = {c["name"]: c["pyType"]        for c in visible_col_profiles}
+        sg_map      = {c["name"]: c["semanticGroup"] for c in visible_col_profiles}
+
+        vertical_rows = []
+        for col_name in visible_col_names:
+            row = {
+                "Field Name":     col_name,
+                "Type":           type_map.get(col_name, ""),
+                "Python Type":    py_type_map.get(col_name, ""),
+                "Semantic Group": sg_map.get(col_name, ""),
+            }
+            for i in range(len(records)):
+                val = records.iloc[i].get(col_name)
+                row[f"Record {i + 1}"] = (
+                    "" if val is None or (isinstance(val, float) and str(val) == "nan") else val
+                )
+            vertical_rows.append(row)
+
+        vertical_df = pd.DataFrame(vertical_rows)
+
         if search_term:
-            mask = display_df.apply(
-                lambda row: row.astype(str).str.contains(search_term, case=False, na=False).any(), axis=1
-            )
-            display_df = display_df[mask]
+            vertical_df = vertical_df[
+                vertical_df["Field Name"].str.contains(search_term, case=False, na=False)
+            ]
 
-        if view_mode == "Vertical":
-            records = display_df.reset_index(drop=True)
-            type_map     = {c["name"]: c["type"]          for c in visible_col_profiles}
-            py_type_map  = {c["name"]: c["pyType"]        for c in visible_col_profiles}
-            sg_map       = {c["name"]: c["semanticGroup"] for c in visible_col_profiles}
-
-            vertical_rows = []
-            for col_name in visible_col_names:
-                row = {
-                    "Field Name":     col_name,
-                    "Type":           type_map.get(col_name, ""),
-                    "Python Type":    py_type_map.get(col_name, ""),
-                    "Semantic Group": sg_map.get(col_name, ""),
-                }
-                for i in range(len(records)):
-                    val = records.iloc[i].get(col_name)
-                    row[f"Record {i + 1}"] = (
-                        "" if val is None or (isinstance(val, float) and str(val) == "nan") else val
-                    )
-                vertical_rows.append(row)
-
-            st.dataframe(pd.DataFrame(vertical_rows), use_container_width=True, height=500)
-        else:
-            st.dataframe(display_df, use_container_width=True, height=500)
-
+        st.dataframe(vertical_df, use_container_width=True, height=500)
         st.caption(
-            f"Showing {len(display_df):,} of {len(df):,} rows | {len(visible_col_names)} columns"
+            f"Showing {len(vertical_df):,} of {len(visible_col_names):,} fields | {len(records):,} records"
         )
 
-    # ── Tab: Column Profile ────────────────────────────────────────────────────
     with tab_profile:
         profile_df = pd.DataFrame(summary["columns"]).rename(columns={
             "name": "Column", "type": "Type", "pyType": "Python Type",
