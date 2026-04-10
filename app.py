@@ -35,12 +35,6 @@ st.markdown(
 def info(text: str):
     st.markdown(f'<div class="info-box">ℹ️ {text}</div>', unsafe_allow_html=True)
 
-def _is_empty(v) -> bool:
-    if v is None or v == "":
-        return True
-    if isinstance(v, float) and math.isnan(v):
-        return True
-    return False
 
 def flatten_object(obj: dict, prefix: str = "") -> dict:
     result = {}
@@ -52,6 +46,7 @@ def flatten_object(obj: dict, prefix: str = "") -> dict:
             result[key] = v
     return result
 
+
 def strip_envelope(flat: dict) -> dict:
     data_keys  = [k for k in flat if k.startswith("data.")]
     other_keys = [k for k in flat if not k.startswith("data.")]
@@ -61,6 +56,7 @@ def strip_envelope(flat: dict) -> dict:
     for k in data_keys:
         result[k[len("data."):]] = flat[k]
     return result
+
 
 def detect_type(values: list) -> tuple[str, str]:
     if not values:
@@ -78,6 +74,7 @@ def detect_type(values: list) -> tuple[str, str]:
         return "number", "float"
     return "string", "str"
 
+
 def semantic_group(col_name: str, col_type: str) -> str:
     lower = col_name.lower()
     if any(k in lower for k in ("id", "uuid", "hash", "token")):
@@ -92,11 +89,13 @@ def semantic_group(col_name: str, col_type: str) -> str:
         return "Flags & Booleans"
     return "Text & Categories"
 
+
 def sanitize_python_name(name: str) -> str:
     safe = re.sub(r"[^a-zA-Z0-9_]", "_", name)
     if safe and safe[0].isdigit():
         safe = f"field_{safe}"
     return safe
+
 
 def safe_val(val):
     if val is None:
@@ -107,12 +106,6 @@ def safe_val(val):
         return str(val)
     return val
 
-def fill_badge(v: float) -> str:
-    if v >= 90:
-        return f"🟢 {v:.1f}%"
-    if v >= 50:
-        return f"🟡 {v:.1f}%"
-    return f"🔴 {v:.1f}%"
 
 def profile_data(flat_rows: list[dict]) -> dict:
     if not flat_rows:
@@ -256,17 +249,21 @@ if len(st.session_state.upload_history) > 1:
             "API responses side by side."
         )
         for i, h in enumerate(st.session_state.upload_history):
-            c1, c2 = st.columns([6, 2])
+            c1, c2, c3 = st.columns([6, 1, 1])
             with c1:
                 st.markdown(
                     f"**{h['name']}** — {h['summary']['totalRows']:,} rows, "
                     f"{len(h['summary']['columns']):,} fields"
                 )
             with c2:
-                if st.button("Load", key=f"history_{i}"):
+                if st.button("Load", key=f"history_load_{i}", use_container_width=True):
                     st.session_state.flat_rows = h["flat_rows"]
                     st.session_state.summary   = h["summary"]
                     st.session_state.df        = h["df"]
+                    st.rerun()
+            with c3:
+                if st.button("🗑", key=f"history_del_{i}", use_container_width=True, help="Remove from history"):
+                    st.session_state.upload_history.pop(i)
                     st.rerun()
 
 # ── Schema consistency checker ─────────────────────────────────────────────────
@@ -354,10 +351,9 @@ if st.session_state.summary:
 
     st.markdown("---")
 
-    tab_data, tab_profile, tab_heatmap, tab_freq, tab_compare = st.tabs([
+    tab_data, tab_profile, tab_freq, tab_compare = st.tabs([
         "📋 Data Table",
         "🔬 Column Profile",
-        "🌡 Null Heatmap",
         "📊 Value Frequency",
         "🔀 Compare Records",
     ])
@@ -418,14 +414,18 @@ if st.session_state.summary:
                 "Type":           type_map.get(col_name, ""),
                 "Python Type":    py_type_map.get(col_name, ""),
                 "Semantic Group": sg_map.get(col_name, ""),
-                "Fill %":         fill_badge(fill_map.get(col_name, 0.0)),
+                "Fill %":         fill_map.get(col_name, 0.0),
             }
             for i in range(len(records)):
                 row[f"Record {i + 1}"] = safe_val(records.iloc[i].get(col_name))
             vertical_rows.append(row)
 
         vertical_df = pd.DataFrame(vertical_rows)
-        st.dataframe(vertical_df, use_container_width=True, height=520)
+        display_vdf = vertical_df.copy()
+        display_vdf["Fill %"] = display_vdf["Fill %"].apply(
+            lambda v: f"🟢 {v:.1f}%" if v >= 90 else (f"🟡 {v:.1f}%" if v >= 50 else f"🔴 {v:.1f}%")
+        )
+        st.dataframe(display_vdf, use_container_width=True, height=520)
         st.caption(
             f"Page {page_num} of {total_pages} — "
             f"showing fields {start_idx + 1}–{min(start_idx + PAGE_SIZE, total_fields)} "
@@ -468,7 +468,9 @@ if st.session_state.summary:
         })[["Column", "Type", "Python Type", "Semantic Group", "Null Count", "Unique Count", "Fill %"]]
 
         display_profile_df = profile_df.copy()
-        display_profile_df["Fill %"] = display_profile_df["Fill %"].apply(fill_badge)
+        display_profile_df["Fill %"] = display_profile_df["Fill %"].apply(
+            lambda v: f"🟢 {v:.1f}%" if v >= 90 else (f"🟡 {v:.1f}%" if v >= 50 else f"🔴 {v:.1f}%")
+        )
         st.dataframe(display_profile_df, use_container_width=True, height=520)
 
         st.download_button(
@@ -479,48 +481,20 @@ if st.session_state.summary:
             help="Download the full column profile as a CSV data dictionary.",
         )
 
-    with tab_heatmap:
-        info(
-            "The Null Heatmap gives a bird's-eye view of data completeness. Each cell "
-            "represents one field × one record: ✓ means a value is present, "
-            "✗ means it is null or empty. With hundreds of fields, this makes it "
-            "immediately obvious which fields are consistently empty vs well-populated."
-        )
-
-        hm_search = st.text_input(
-            "Filter fields for heatmap", placeholder="e.g. address_match", key="hm_search"
-        )
-        hm_profiles = summary["columns"]
-        if hm_search:
-            hm_profiles = [c for c in hm_profiles if hm_search.lower() in c["name"].lower()]
-
-        hm_cols = [c["name"] for c in hm_profiles[:100] if c["name"] in df.columns]
-        hm_df   = df[hm_cols].reset_index(drop=True)
-
-        presence = hm_df.apply(lambda col: col.map(lambda v: 0 if _is_empty(v) else 1))
-        display_presence = presence.apply(
-            lambda col: col.map(lambda v: "✓" if v == 1 else "✗")
-        )
-
-        st.dataframe(display_presence, use_container_width=True, height=500)
-        st.caption(
-            f"Showing {len(hm_cols)} of {len(summary['columns'])} fields × "
-            f"{len(hm_df)} records. Max 100 fields at once."
-        )
-
     with tab_freq:
         info(
             "The Value Frequency panel shows the distribution of values for any field "
             "you select. It answers: 'what values does this field actually take across "
-            "all records, and how often?' Null/empty values are counted separately."
+            "all records, and how often?' Null/empty values are counted separately so "
+            "you can see exactly how much missing data exists."
         )
 
         col_names = [c["name"] for c in summary["columns"]]
         sel_col = st.selectbox("Select a field to analyse", col_names, key="freq_col")
 
         values_raw = [row.get(sel_col) for row in flat_rows]
-        null_count = sum(1 for v in values_raw if _is_empty(v))
-        non_null   = [v for v in values_raw if not _is_empty(v)]
+        null_count = sum(1 for v in values_raw if v is None or v == "" or (isinstance(v, float) and math.isnan(v)))
+        non_null   = [v for v in values_raw if v is not None and v != "" and not (isinstance(v, float) and math.isnan(v))]
 
         f1, f2, f3 = st.columns(3)
         f1.metric("Total records", len(values_raw))
