@@ -35,6 +35,12 @@ st.markdown(
 def info(text: str):
     st.markdown(f'<div class="info-box">ℹ️ {text}</div>', unsafe_allow_html=True)
 
+def _is_empty(v) -> bool:
+    if v is None or v == "":
+        return True
+    if isinstance(v, float) and math.isnan(v):
+        return True
+    return False
 
 def flatten_object(obj: dict, prefix: str = "") -> dict:
     result = {}
@@ -46,7 +52,6 @@ def flatten_object(obj: dict, prefix: str = "") -> dict:
             result[key] = v
     return result
 
-
 def strip_envelope(flat: dict) -> dict:
     data_keys  = [k for k in flat if k.startswith("data.")]
     other_keys = [k for k in flat if not k.startswith("data.")]
@@ -56,7 +61,6 @@ def strip_envelope(flat: dict) -> dict:
     for k in data_keys:
         result[k[len("data."):]] = flat[k]
     return result
-
 
 def detect_type(values: list) -> tuple[str, str]:
     if not values:
@@ -74,7 +78,6 @@ def detect_type(values: list) -> tuple[str, str]:
         return "number", "float"
     return "string", "str"
 
-
 def semantic_group(col_name: str, col_type: str) -> str:
     lower = col_name.lower()
     if any(k in lower for k in ("id", "uuid", "hash", "token")):
@@ -89,13 +92,11 @@ def semantic_group(col_name: str, col_type: str) -> str:
         return "Flags & Booleans"
     return "Text & Categories"
 
-
 def sanitize_python_name(name: str) -> str:
     safe = re.sub(r"[^a-zA-Z0-9_]", "_", name)
     if safe and safe[0].isdigit():
         safe = f"field_{safe}"
     return safe
-
 
 def safe_val(val):
     if val is None:
@@ -106,22 +107,12 @@ def safe_val(val):
         return str(val)
     return val
 
-
 def fill_badge(v: float) -> str:
     if v >= 90:
         return f"🟢 {v:.1f}%"
     if v >= 50:
         return f"🟡 {v:.1f}%"
     return f"🔴 {v:.1f}%"
-
-
-def _is_empty(v) -> bool:
-    if v is None or v == "":
-        return True
-    if isinstance(v, float) and math.isnan(v):
-        return True
-    return False
-
 
 def profile_data(flat_rows: list[dict]) -> dict:
     if not flat_rows:
@@ -371,7 +362,6 @@ if st.session_state.summary:
         "🔀 Compare Records",
     ])
 
-    # ── TAB 1: Data Table ─────────────────────────────────────────────────────
     with tab_data:
         info(
             "The Data Table shows every field as a row, with each record as a column. "
@@ -463,7 +453,6 @@ if st.session_state.summary:
                 help="Download the full dataset as a JSON file.",
             )
 
-    # ── TAB 2: Column Profile ─────────────────────────────────────────────────
     with tab_profile:
         info(
             "The Column Profile gives a statistical summary of every field: its data type, "
@@ -490,7 +479,6 @@ if st.session_state.summary:
             help="Download the full column profile as a CSV data dictionary.",
         )
 
-    # ── TAB 3: Null Heatmap ───────────────────────────────────────────────────
     with tab_heatmap:
         info(
             "The Null Heatmap gives a bird's-eye view of data completeness. Each cell "
@@ -510,8 +498,7 @@ if st.session_state.summary:
         hm_df   = df[hm_cols].reset_index(drop=True)
 
         presence = hm_df.apply(lambda col: col.map(lambda v: 0 if _is_empty(v) else 1))
-        display_presence = presence.rename(columns={c: c.split(".")[-1] for c in presence.columns})
-        display_presence = display_presence.apply(
+        display_presence = presence.apply(
             lambda col: col.map(lambda v: "✓" if v == 1 else "✗")
         )
 
@@ -521,7 +508,6 @@ if st.session_state.summary:
             f"{len(hm_df)} records. Max 100 fields at once."
         )
 
-    # ── TAB 4: Value Frequency ────────────────────────────────────────────────
     with tab_freq:
         info(
             "The Value Frequency panel shows the distribution of values for any field "
@@ -560,7 +546,6 @@ if st.session_state.summary:
         else:
             st.warning("All values for this field are null or empty.")
 
-    # ── TAB 5: Compare Records ────────────────────────────────────────────────
     with tab_compare:
         info(
             "Compare Records lets you pick two records from your dataset and shows only "
