@@ -107,6 +107,22 @@ def safe_val(val):
     return val
 
 
+def fill_badge(v: float) -> str:
+    if v >= 90:
+        return f"🟢 {v:.1f}%"
+    if v >= 50:
+        return f"🟡 {v:.1f}%"
+    return f"🔴 {v:.1f}%"
+
+
+def _is_empty(v) -> bool:
+    if v is None or v == "":
+        return True
+    if isinstance(v, float) and math.isnan(v):
+        return True
+    return False
+
+
 def profile_data(flat_rows: list[dict]) -> dict:
     if not flat_rows:
         return {"totalRows": 0, "columns": [], "qualityScore": 0,
@@ -355,14 +371,14 @@ if st.session_state.summary:
         "🔀 Compare Records",
     ])
 
+    # ── TAB 1: Data Table ─────────────────────────────────────────────────────
     with tab_data:
         info(
             "The Data Table shows every field as a row, with each record as a column. "
             "Use the search box to filter fields by name, and the group dropdown to "
             "focus on a specific semantic category (e.g. Location, Identifiers). "
-            "Each row shows a Fill % column indicating how populated that field is "
-            "across all records: 🟢 ≥90%, 🟡 50–89%, 🔴 <50%. "
-            "Use the page control to navigate through large field lists."
+            "Each row shows a Fill % indicator: 🟢 ≥90%, 🟡 50–89%, 🔴 <50%. "
+            "Use the page number to navigate (50 fields per page)."
         )
 
         c_search, c_group, c_page = st.columns([3, 4, 3])
@@ -373,12 +389,9 @@ if st.session_state.summary:
         all_groups = ["All"] + sorted(set(c["semanticGroup"] for c in summary["columns"]))
         with c_group:
             selected_group = st.selectbox("group", all_groups, label_visibility="collapsed")
-
         PAGE_SIZE = 50
         with c_page:
-            page_num = st.number_input(
-                "Page", min_value=1, value=1, step=1, label_visibility="collapsed"
-            )
+            page_num = st.number_input("Page", min_value=1, value=1, step=1, label_visibility="collapsed")
 
         if selected_group == "All":
             visible_col_profiles = [c for c in summary["columns"] if c["name"] in df.columns]
@@ -387,19 +400,16 @@ if st.session_state.summary:
                 c for c in summary["columns"]
                 if c["semanticGroup"] == selected_group and c["name"] in df.columns
             ]
-
         if search_term:
             visible_col_profiles = [
-                c for c in visible_col_profiles
-                if search_term.lower() in c["name"].lower()
+                c for c in visible_col_profiles if search_term.lower() in c["name"].lower()
             ]
 
         visible_col_names = [c["name"] for c in visible_col_profiles]
-
-        total_fields  = len(visible_col_names)
-        total_pages   = max(1, math.ceil(total_fields / PAGE_SIZE))
-        page_num      = min(page_num, total_pages)
-        start_idx     = (page_num - 1) * PAGE_SIZE
+        total_fields   = len(visible_col_names)
+        total_pages    = max(1, math.ceil(total_fields / PAGE_SIZE))
+        page_num       = min(page_num, total_pages)
+        start_idx      = (page_num - 1) * PAGE_SIZE
         paged_profiles = visible_col_profiles[start_idx: start_idx + PAGE_SIZE]
         paged_names    = [c["name"] for c in paged_profiles]
 
@@ -418,28 +428,14 @@ if st.session_state.summary:
                 "Type":           type_map.get(col_name, ""),
                 "Python Type":    py_type_map.get(col_name, ""),
                 "Semantic Group": sg_map.get(col_name, ""),
-                "Fill %":         fill_map.get(col_name, 0.0),
+                "Fill %":         fill_badge(fill_map.get(col_name, 0.0)),
             }
             for i in range(len(records)):
                 row[f"Record {i + 1}"] = safe_val(records.iloc[i].get(col_name))
             vertical_rows.append(row)
 
         vertical_df = pd.DataFrame(vertical_rows)
-
-        st.dataframe(
-            vertical_df.style.apply(
-                lambda col: [
-                    "background-color: #dcfce7" if v >= 90
-                    else "background-color: #fef9c3" if v >= 50
-                    else "background-color: #fee2e2"
-                    if col.name == "Fill %" else ""
-                    for v in col
-                ],
-                subset=["Fill %"],
-            ),
-            use_container_width=True,
-            height=520,
-        )
+        st.dataframe(vertical_df, use_container_width=True, height=520)
         st.caption(
             f"Page {page_num} of {total_pages} — "
             f"showing fields {start_idx + 1}–{min(start_idx + PAGE_SIZE, total_fields)} "
@@ -455,8 +451,7 @@ if st.session_state.summary:
                 file_name="data_table_export.csv",
                 mime="text/csv",
                 use_container_width=True,
-                help="Download the current filtered/paged view as a CSV file. "
-                     "Useful for sharing with stakeholders who use Excel or Google Sheets.",
+                help="Download the current filtered/paged view as a CSV file.",
             )
         with col_json2:
             st.download_button(
@@ -465,15 +460,16 @@ if st.session_state.summary:
                 file_name="full_export.json",
                 mime="application/json",
                 use_container_width=True,
-                help="Download the full dataset (all records, all fields) as a JSON file.",
+                help="Download the full dataset as a JSON file.",
             )
 
+    # ── TAB 2: Column Profile ─────────────────────────────────────────────────
     with tab_profile:
         info(
             "The Column Profile gives a statistical summary of every field: its data type, "
             "how many records have a null/empty value, how many unique values exist, and "
-            "which semantic group it belongs to. The Fill % column shows what percentage of "
-            "records actually have a value for that field — a good indicator of data reliability."
+            "which semantic group it belongs to. Fill % shows what percentage of records "
+            "have a value for that field — a good indicator of data reliability."
         )
 
         profile_df = pd.DataFrame(summary["columns"]).rename(columns={
@@ -482,40 +478,30 @@ if st.session_state.summary:
             "uniqueCount": "Unique Count", "fillPct": "Fill %",
         })[["Column", "Type", "Python Type", "Semantic Group", "Null Count", "Unique Count", "Fill %"]]
 
-        st.dataframe(
-            profile_df.style.apply(
-                lambda col: [
-                    "background-color: #dcfce7" if v >= 90
-                    else "background-color: #fef9c3" if v >= 50
-                    else "background-color: #fee2e2"
-                    for v in col
-                ],
-                subset=["Fill %"],
-            ),
-            use_container_width=True,
-            height=520,
-        )
+        display_profile_df = profile_df.copy()
+        display_profile_df["Fill %"] = display_profile_df["Fill %"].apply(fill_badge)
+        st.dataframe(display_profile_df, use_container_width=True, height=520)
 
         st.download_button(
             label="⬇ Export Column Profile as CSV",
             data=profile_df.to_csv(index=False),
             file_name="column_profile.csv",
             mime="text/csv",
-            help="Download the full column profile as a CSV. "
-                 "Use it as a data dictionary to share with your team or attach to a data contract.",
+            help="Download the full column profile as a CSV data dictionary.",
         )
 
+    # ── TAB 3: Null Heatmap ───────────────────────────────────────────────────
     with tab_heatmap:
         info(
             "The Null Heatmap gives a bird's-eye view of data completeness. Each cell "
-            "represents one field × one record: green ✓ means a value is present, "
-            "red ✗ means it is null or empty. With hundreds of fields, this makes it "
-            "immediately obvious which fields are consistently empty (entire red rows) "
-            "vs well-populated (entirely green rows) — without having to scroll through "
-            "the full table."
+            "represents one field × one record: ✓ means a value is present, "
+            "✗ means it is null or empty. With hundreds of fields, this makes it "
+            "immediately obvious which fields are consistently empty vs well-populated."
         )
 
-        hm_search = st.text_input("Filter fields for heatmap", placeholder="e.g. address_match", key="hm_search")
+        hm_search = st.text_input(
+            "Filter fields for heatmap", placeholder="e.g. address_match", key="hm_search"
+        )
         hm_profiles = summary["columns"]
         if hm_search:
             hm_profiles = [c for c in hm_profiles if hm_search.lower() in c["name"].lower()]
@@ -523,38 +509,32 @@ if st.session_state.summary:
         hm_cols = [c["name"] for c in hm_profiles[:100] if c["name"] in df.columns]
         hm_df   = df[hm_cols].reset_index(drop=True)
 
-        presence = hm_df.applymap(
-            lambda v: 0 if (v is None or v == "" or (isinstance(v, float) and math.isnan(v))) else 1
+        presence = hm_df.apply(lambda col: col.map(lambda v: 0 if _is_empty(v) else 1))
+        display_presence = presence.rename(columns={c: c.split(".")[-1] for c in presence.columns})
+        display_presence = display_presence.apply(
+            lambda col: col.map(lambda v: "✓" if v == 1 else "✗")
         )
 
-        def color_presence(val):
-            return "background-color: #bbf7d0; color: #166534;" if val == 1 \
-                else "background-color: #fecaca; color: #991b1b;"
-
-        styled = presence.rename(columns={c: c.split(".")[-1] for c in presence.columns}) \
-                         .style.applymap(color_presence) \
-                         .format(lambda v: "✓" if v == 1 else "✗")
-
-        st.dataframe(styled, use_container_width=True, height=500)
+        st.dataframe(display_presence, use_container_width=True, height=500)
         st.caption(
             f"Showing {len(hm_cols)} of {len(summary['columns'])} fields × "
-            f"{len(hm_df)} records. Max 100 fields displayed at once."
+            f"{len(hm_df)} records. Max 100 fields at once."
         )
 
+    # ── TAB 4: Value Frequency ────────────────────────────────────────────────
     with tab_freq:
         info(
             "The Value Frequency panel shows the distribution of values for any field "
             "you select. It answers: 'what values does this field actually take across "
-            "all records, and how often?' Null/empty values are counted separately so "
-            "you can see exactly how much missing data exists for that field."
+            "all records, and how often?' Null/empty values are counted separately."
         )
 
         col_names = [c["name"] for c in summary["columns"]]
         sel_col = st.selectbox("Select a field to analyse", col_names, key="freq_col")
 
         values_raw = [row.get(sel_col) for row in flat_rows]
-        null_count = sum(1 for v in values_raw if v is None or v == "" or (isinstance(v, float) and math.isnan(v)))
-        non_null   = [v for v in values_raw if v is not None and v != "" and not (isinstance(v, float) and math.isnan(v))]
+        null_count = sum(1 for v in values_raw if _is_empty(v))
+        non_null   = [v for v in values_raw if not _is_empty(v)]
 
         f1, f2, f3 = st.columns(3)
         f1.metric("Total records", len(values_raw))
@@ -571,7 +551,6 @@ if st.session_state.summary:
             freq_df["% of total"]    = (freq_df["Count"] / len(values_raw) * 100).round(1)
 
             st.dataframe(freq_df, use_container_width=True, hide_index=True, height=420)
-
             st.download_button(
                 label="⬇ Export frequency table as CSV",
                 data=freq_df.to_csv(index=False),
@@ -581,6 +560,7 @@ if st.session_state.summary:
         else:
             st.warning("All values for this field are null or empty.")
 
+    # ── TAB 5: Compare Records ────────────────────────────────────────────────
     with tab_compare:
         info(
             "Compare Records lets you pick two records from your dataset and shows only "
@@ -612,10 +592,10 @@ if st.session_state.summary:
                 differs = str(va) != str(vb)
                 if show_all or differs:
                     cmp_rows.append({
-                        "Field":    f,
+                        "Field":         f,
                         f"Record {rec_a}": va,
                         f"Record {rec_b}": vb,
-                        "Different": "⚡ Yes" if differs else "—",
+                        "Different":     "⚡ Yes" if differs else "—",
                     })
 
             if cmp_rows:
