@@ -351,19 +351,20 @@ if st.session_state.summary:
 
     st.markdown("---")
 
-    tab_data, tab_profile, tab_freq, tab_compare = st.tabs([
+    tab_data, tab_freq, tab_compare = st.tabs([
         "📋 Data Table",
-        "🔬 Column Profile",
         "📊 Value Frequency",
         "🔀 Compare Records",
     ])
 
+    # ── TAB 1: Data Table ─────────────────────────────────────────────────────
     with tab_data:
         info(
             "The Data Table shows every field as a row, with each record as a column. "
             "Use the search box to filter fields by name, and the group dropdown to "
             "focus on a specific semantic category (e.g. Location, Identifiers). "
-            "Each row shows a Fill % indicator: 🟢 ≥90%, 🟡 50–89%, 🔴 <50%. "
+            "Null Count, Unique Count and Fill % give a quick data quality view per field. "
+            "Fill % colour: 🟢 ≥90%, 🟡 50–89%, 🔴 <50%. "
             "Use the page number to navigate (50 fields per page)."
         )
 
@@ -406,6 +407,8 @@ if st.session_state.summary:
         py_type_map = {c["name"]: c["pyType"]        for c in paged_profiles}
         sg_map      = {c["name"]: c["semanticGroup"] for c in paged_profiles}
         fill_map    = {c["name"]: c["fillPct"]       for c in paged_profiles}
+        null_map    = {c["name"]: c["nullCount"]     for c in paged_profiles}
+        unique_map  = {c["name"]: c["uniqueCount"]   for c in paged_profiles}
 
         vertical_rows = []
         for col_name in paged_names:
@@ -414,10 +417,12 @@ if st.session_state.summary:
                 "Type":           type_map.get(col_name, ""),
                 "Python Type":    py_type_map.get(col_name, ""),
                 "Semantic Group": sg_map.get(col_name, ""),
+                "Null Count":     null_map.get(col_name, 0),
+                "Unique Count":   unique_map.get(col_name, 0),
                 "Fill %":         fill_map.get(col_name, 0.0),
             }
             for i in range(len(records)):
-                row[f"Record {i + 1}"] = safe_val(records.iloc[i].get(col_name))
+                row[f"Value {i + 1}"] = safe_val(records.iloc[i].get(col_name))
             vertical_rows.append(row)
 
         vertical_df = pd.DataFrame(vertical_rows)
@@ -453,34 +458,7 @@ if st.session_state.summary:
                 help="Download the full dataset as a JSON file.",
             )
 
-    with tab_profile:
-        info(
-            "The Column Profile gives a statistical summary of every field: its data type, "
-            "how many records have a null/empty value, how many unique values exist, and "
-            "which semantic group it belongs to. Fill % shows what percentage of records "
-            "have a value for that field — a good indicator of data reliability."
-        )
-
-        profile_df = pd.DataFrame(summary["columns"]).rename(columns={
-            "name": "Column", "type": "Type", "pyType": "Python Type",
-            "semanticGroup": "Semantic Group", "nullCount": "Null Count",
-            "uniqueCount": "Unique Count", "fillPct": "Fill %",
-        })[["Column", "Type", "Python Type", "Semantic Group", "Null Count", "Unique Count", "Fill %"]]
-
-        display_profile_df = profile_df.copy()
-        display_profile_df["Fill %"] = display_profile_df["Fill %"].apply(
-            lambda v: f"🟢 {v:.1f}%" if v >= 90 else (f"🟡 {v:.1f}%" if v >= 50 else f"🔴 {v:.1f}%")
-        )
-        st.dataframe(display_profile_df, use_container_width=True, height=520)
-
-        st.download_button(
-            label="⬇ Export Column Profile as CSV",
-            data=profile_df.to_csv(index=False),
-            file_name="column_profile.csv",
-            mime="text/csv",
-            help="Download the full column profile as a CSV data dictionary.",
-        )
-
+    # ── TAB 2: Value Frequency ────────────────────────────────────────────────
     with tab_freq:
         info(
             "The Value Frequency panel shows the distribution of values for any field "
@@ -520,12 +498,15 @@ if st.session_state.summary:
         else:
             st.warning("All values for this field are null or empty.")
 
+    # ── TAB 3: Compare Records ────────────────────────────────────────────────
     with tab_compare:
         info(
-            "Compare Records lets you pick two records from your dataset and shows only "
-            "the fields where their values differ. Ideal for debugging — if one business "
-            "passed KYB and another failed, you can immediately see exactly which fields "
-            "are different between them without scrolling through hundreds of identical rows."
+            "Compare Records picks two records and shows a full analysis of their differences. "
+            "Summary metrics tell you at a glance how similar the records are. "
+            "Differences are broken down by semantic group so you can see which areas "
+            "(e.g. Location, Identifiers, Metrics) diverge the most. "
+            "The diff table lets you drill into every field side by side. "
+            "Ideal for debugging — e.g. why did one business pass KYB and another fail?"
         )
 
         n_records = len(flat_rows)
@@ -542,26 +523,66 @@ if st.session_state.summary:
             row_b = flat_rows[rec_b - 1]
             all_f = list(dict.fromkeys(list(row_a.keys()) + list(row_b.keys())))
 
-            show_all = st.checkbox("Show all fields (including identical values)", value=False)
-
-            cmp_rows = []
+            field_profile = {c["name"]: c for c in summary["columns"]}
+            diff_rows, same_rows = [], []
             for f in all_f:
                 va = safe_val(row_a.get(f))
                 vb = safe_val(row_b.get(f))
                 differs = str(va) != str(vb)
-                if show_all or differs:
-                    cmp_rows.append({
-                        "Field":         f,
-                        f"Record {rec_a}": va,
-                        f"Record {rec_b}": vb,
-                        "Different":     "⚡ Yes" if differs else "—",
-                    })
+                sg = field_profile.get(f, {}).get("semanticGroup", "Other")
+                entry = {"Field": f, "Semantic Group": sg,
+                         f"Record {rec_a}": va, f"Record {rec_b}": vb}
+                (diff_rows if differs else same_rows).append(entry)
 
-            if cmp_rows:
-                cmp_df = pd.DataFrame(cmp_rows)
-                st.dataframe(cmp_df, use_container_width=True, hide_index=True, height=520)
-                diff_count = sum(1 for r in cmp_rows if r["Different"] == "⚡ Yes")
-                st.caption(f"{diff_count} field(s) differ between Record {rec_a} and Record {rec_b}.")
+            total_fields  = len(all_f)
+            diff_count    = len(diff_rows)
+            same_count    = len(same_rows)
+            similarity    = round((same_count / total_fields * 100) if total_fields else 0, 1)
+
+            st.markdown("#### Summary")
+            km1, km2, km3, km4 = st.columns(4)
+            km1.metric("Total Fields", total_fields)
+            km2.metric("Fields Different", diff_count, delta=f"-{diff_count}" if diff_count else None,
+                       delta_color="inverse")
+            km3.metric("Fields Identical", same_count)
+            km4.metric("Similarity", f"{similarity}%",
+                       delta=f"{'🟢' if similarity >= 80 else '🟡' if similarity >= 50 else '🔴'}")
+
+            st.markdown("---")
+
+            if diff_rows:
+                st.markdown("#### Differences by Semantic Group")
+                group_counts: dict[str, int] = {}
+                for r in diff_rows:
+                    group_counts[r["Semantic Group"]] = group_counts.get(r["Semantic Group"], 0) + 1
+
+                group_cols = st.columns(min(len(group_counts), 4))
+                for idx, (grp, cnt) in enumerate(sorted(group_counts.items(), key=lambda x: -x[1])):
+                    group_cols[idx % len(group_cols)].metric(grp, f"{cnt} diff{'s' if cnt > 1 else ''}")
+
+                st.markdown("---")
+
+                st.markdown(f"#### ⚡ {diff_count} Field(s) That Differ")
+                all_diff_groups = ["All"] + sorted(group_counts.keys())
+                sel_diff_group = st.selectbox("Filter by group", all_diff_groups, key="cmp_grp_filter")
+
+                filtered_diffs = diff_rows if sel_diff_group == "All" \
+                    else [r for r in diff_rows if r["Semantic Group"] == sel_diff_group]
+
+                cmp_df = pd.DataFrame(filtered_diffs)
+                st.dataframe(cmp_df, use_container_width=True, hide_index=True, height=420)
+
+                st.download_button(
+                    label="⬇ Export differences as CSV",
+                    data=cmp_df.to_csv(index=False),
+                    file_name=f"diff_record{rec_a}_vs_record{rec_b}.csv",
+                    mime="text/csv",
+                )
+
+                if same_rows:
+                    with st.expander(f"✅ View {same_count} identical field(s)"):
+                        st.dataframe(pd.DataFrame(same_rows), use_container_width=True,
+                                     hide_index=True, height=300)
             else:
                 st.success("✅ Both records are identical across all fields.")
 
