@@ -32,6 +32,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
 def info(text: str):
     st.markdown(f'<div class="info-box">ℹ️ {text}</div>', unsafe_allow_html=True)
 
@@ -173,7 +174,32 @@ def profile_data(flat_rows: list[dict]) -> dict:
     }
 
 
-# ── Session state ──────────────────────────────────────────────────────────────
+def _process_json(raw_text: str, source_name: str):
+    raw = json.loads(raw_text)
+    if not isinstance(raw, list):
+        raw = [raw]
+    flat_rows = [
+        strip_envelope(flatten_object(item)) if isinstance(item, dict) else {"value": item}
+        for item in raw
+    ]
+    summary = profile_data(flat_rows)
+    df      = pd.DataFrame(flat_rows)
+
+    st.session_state.flat_rows = flat_rows
+    st.session_state.summary   = summary
+    st.session_state.df        = df
+
+    existing_names = [h["name"] for h in st.session_state.upload_history]
+    if source_name not in existing_names:
+        st.session_state.upload_history.insert(0, {
+            "name": source_name, "flat_rows": flat_rows,
+            "summary": summary, "df": df,
+        })
+        st.session_state.upload_history = st.session_state.upload_history[:5]
+
+    return len(flat_rows), len(summary["columns"])
+
+
 for key, default in [
     ("flat_rows", []),
     ("summary", None),
@@ -185,7 +211,6 @@ for key, default in [
         st.session_state[key] = default
 
 
-# ── Header ─────────────────────────────────────────────────────────────────────
 col_logo, col_export = st.columns([8, 2])
 with col_logo:
     st.markdown("## 📊 Data Ingestion & Analysis")
@@ -202,45 +227,49 @@ with col_export:
 
 st.divider()
 
-# ── Upload Section ─────────────────────────────────────────────────────────────
 with st.container(border=True):
     st.markdown("**Upload Dataset**")
-    uploaded_file = st.file_uploader(
-        "Choose a JSON file", type=["json"], label_visibility="collapsed"
-    )
-    if uploaded_file is not None:
-        try:
-            raw = json.loads(uploaded_file.read().decode("utf-8"))
-            if not isinstance(raw, list):
-                raw = [raw]
-            flat_rows = [
-                strip_envelope(flatten_object(item)) if isinstance(item, dict) else {"value": item}
-                for item in raw
-            ]
-            summary = profile_data(flat_rows)
-            df      = pd.DataFrame(flat_rows)
+    input_tab_file, input_tab_paste = st.tabs(["📁 Upload File", "📋 Paste JSON"])
 
-            st.session_state.flat_rows = flat_rows
-            st.session_state.summary   = summary
-            st.session_state.df        = df
+    with input_tab_file:
+        uploaded_file = st.file_uploader(
+            "Choose a JSON file", type=["json"], label_visibility="collapsed"
+        )
+        if uploaded_file is not None:
+            try:
+                nrows, ncols = _process_json(uploaded_file.read().decode("utf-8"), uploaded_file.name)
+                st.success(f"✅ File processed — {nrows:,} rows, {ncols:,} fields.")
+            except json.JSONDecodeError as e:
+                st.error(f"Invalid JSON: {e}")
+            except Exception as e:
+                st.error(f"Error processing file: {e}")
 
-            existing_names = [h["name"] for h in st.session_state.upload_history]
-            if uploaded_file.name not in existing_names:
-                st.session_state.upload_history.insert(0, {
-                    "name": uploaded_file.name,
-                    "flat_rows": flat_rows,
-                    "summary":   summary,
-                    "df":        df,
-                })
-                st.session_state.upload_history = st.session_state.upload_history[:5]
+    with input_tab_paste:
+        st.caption("Paste a JSON object `{}` or array `[]` directly into the box below.")
+        pasted = st.text_area(
+            "paste", height=200,
+            placeholder='[{"field": "value", ...}, ...]\nor\n{"field": "value", ...}',
+            label_visibility="collapsed",
+        )
+        paste_name = st.text_input(
+            "name", placeholder="Dataset name (optional, e.g. my_data)",
+            label_visibility="collapsed",
+        )
+        if st.button("▶ Process Pasted JSON", use_container_width=True):
+            if not pasted.strip():
+                st.warning("Please paste some JSON first.")
+            else:
+                try:
+                    name = (paste_name.strip() or "pasted_json")
+                    if not name.endswith(".json"):
+                        name += ".json"
+                    nrows, ncols = _process_json(pasted, name)
+                    st.success(f"✅ JSON processed — {nrows:,} rows, {ncols:,} fields.")
+                except json.JSONDecodeError as e:
+                    st.error(f"Invalid JSON: {e}")
+                except Exception as e:
+                    st.error(f"Error processing JSON: {e}")
 
-            st.success(f"✅ File processed — {len(flat_rows):,} rows, {len(summary['columns']):,} fields.")
-        except json.JSONDecodeError as e:
-            st.error(f"Invalid JSON: {e}")
-        except Exception as e:
-            st.error(f"Error processing file: {e}")
-
-# ── Upload history switcher ────────────────────────────────────────────────────
 if len(st.session_state.upload_history) > 1:
     with st.expander("📂 Upload History — switch between previously loaded files"):
         info(
@@ -266,7 +295,6 @@ if len(st.session_state.upload_history) > 1:
                     st.session_state.upload_history.pop(i)
                     st.rerun()
 
-# ── Schema consistency checker ─────────────────────────────────────────────────
 if len(st.session_state.upload_history) >= 2:
     with st.expander("🔍 Schema Consistency Checker — compare field lists across uploads"):
         info(
@@ -320,7 +348,6 @@ if len(st.session_state.upload_history) >= 2:
         if not added and not removed and not changed:
             st.success("✅ Schemas are identical.")
 
-# ── Main content ───────────────────────────────────────────────────────────────
 if st.session_state.summary:
     summary   = st.session_state.summary
     flat_rows = st.session_state.flat_rows
@@ -357,7 +384,6 @@ if st.session_state.summary:
         "🔀 Compare Records",
     ])
 
-    # ── TAB 1: Data Table ─────────────────────────────────────────────────────
     with tab_data:
         info(
             "The Data Table shows every field as a row, with each record as a column. "
@@ -458,7 +484,6 @@ if st.session_state.summary:
                 help="Download the full dataset as a JSON file.",
             )
 
-    # ── TAB 2: Value Frequency ────────────────────────────────────────────────
     with tab_freq:
         info(
             "The Value Frequency panel shows the distribution of values for any field "
@@ -498,14 +523,12 @@ if st.session_state.summary:
         else:
             st.warning("All values for this field are null or empty.")
 
-    # ── TAB 3: Compare Records ────────────────────────────────────────────────
     with tab_compare:
         info(
             "Compare Records picks two records and shows a full analysis of their differences. "
             "Summary metrics tell you at a glance how similar the records are. "
             "Differences are broken down by semantic group so you can see which areas "
             "(e.g. Location, Identifiers, Metrics) diverge the most. "
-            "The diff table lets you drill into every field side by side. "
             "Ideal for debugging — e.g. why did one business pass KYB and another fail?"
         )
 
@@ -542,8 +565,8 @@ if st.session_state.summary:
             st.markdown("#### Summary")
             km1, km2, km3, km4 = st.columns(4)
             km1.metric("Total Fields", total_fields)
-            km2.metric("Fields Different", diff_count, delta=f"-{diff_count}" if diff_count else None,
-                       delta_color="inverse")
+            km2.metric("Fields Different", diff_count,
+                       delta=f"-{diff_count}" if diff_count else None, delta_color="inverse")
             km3.metric("Fields Identical", same_count)
             km4.metric("Similarity", f"{similarity}%",
                        delta=f"{'🟢' if similarity >= 80 else '🟡' if similarity >= 50 else '🔴'}")
@@ -561,8 +584,8 @@ if st.session_state.summary:
                     group_cols[idx % len(group_cols)].metric(grp, f"{cnt} diff{'s' if cnt > 1 else ''}")
 
                 st.markdown("---")
-
                 st.markdown(f"#### ⚡ {diff_count} Field(s) That Differ")
+
                 all_diff_groups = ["All"] + sorted(group_counts.keys())
                 sel_diff_group = st.selectbox("Filter by group", all_diff_groups, key="cmp_grp_filter")
 
